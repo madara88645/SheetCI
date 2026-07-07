@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  test-and-smoke:
+    name: Test and SheetCI smoke checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      - name: Run tests
+        run: uv run pytest
+
+      - name: Smoke test clean workbook
+        run: uv run sheetci scan examples/clean-model.xlsx
+
+      - name: Generate failing workbook reports
+        run: |
+          set +e
+          uv run sheetci scan examples/broken-commission-model.xlsx \
+            --out sheetci-broken-report.md \
+            --html sheetci-broken-report.html
+          code=$?
+          set -e
+          if [ "$code" -ne 1 ]; then
+            echo "Expected broken workbook scan to fail with exit code 1, got $code"
+            exit 1
+          fi
+
+      - name: Upload example reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: sheetci-example-reports
+          path: |
+            sheetci-broken-report.md
+            sheetci-broken-report.html
