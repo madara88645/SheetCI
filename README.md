@@ -114,6 +114,12 @@ Expected result:
 
 ---
 
+## Launch and Feedback
+
+SheetCI is an early MVP. The initial launch plan, copy-paste sharing posts, feedback questions, and success signals are documented in [`docs/launch-plan.md`](docs/launch-plan.md).
+
+---
+
 ## Core Detectors
 
 SheetCI comes with deterministic detectors:
