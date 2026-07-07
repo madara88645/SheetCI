@@ -4,6 +4,8 @@ SheetCI is a CLI-first tool that checks business-critical Excel spreadsheets (`.
 
 With SheetCI, you can catch silent spreadsheet bugs (like broken references, circular formulas, or hardcoded values in calculations) before they make it into production or financial reports.
 
+![SheetCI audit report screenshot](docs/assets/sheetci-report.png)
+
 ---
 
 ## Quickstart
@@ -63,6 +65,25 @@ uv run sheetci scan examples/broken-commission-model.xlsx --out report.md --html
 ```
 
 The broken example is expected to fail with exit code `1` because it contains intentional audit findings.
+
+---
+
+## Demo
+
+The sample workbook at `examples/broken-commission-model.xlsx` intentionally includes broken references, a self-reference, a cached calculation error, an external workbook link, a hidden sheet, hardcoded numbers, and an inconsistent formula.
+
+Run:
+
+```bash
+sheetci scan examples/broken-commission-model.xlsx --out report.md --html report.html
+```
+
+Expected result:
+
+- Status: `FAIL`
+- Risk score: `100/100`
+- Findings: `8`
+- Example Markdown report: [`docs/example-report.md`](docs/example-report.md)
 
 ---
 
