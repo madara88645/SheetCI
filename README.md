@@ -1,10 +1,37 @@
 # SheetCI
 
+[![CI](https://github.com/madara88645/SheetCI/actions/workflows/ci.yml/badge.svg)](https://github.com/madara88645/SheetCI/actions/workflows/ci.yml)
+
 SheetCI is a CLI-first tool that checks business-critical Excel spreadsheets (`.xlsx`) for risky formulas and produces audit reports. Think of it as a **linter, tester, and CI guardrail for Excel files**.
 
 With SheetCI, you can catch silent spreadsheet bugs (like broken references, circular formulas, or hardcoded values in calculations) before they make it into production or financial reports.
 
 ![SheetCI audit report screenshot](docs/assets/sheetci-report.png)
+
+---
+
+## Why SheetCI?
+
+Spreadsheets often run important business logic, but they usually do not get the same checks as code. A small formula change can silently alter revenue, commission, budget, pricing, or reporting outputs.
+
+SheetCI gives teams a local, deterministic scan before a workbook is shared, committed, or used for a decision.
+
+---
+
+## Use Cases
+
+- Finance models with fragile formulas or hidden sheets
+- Sales commission workbooks
+- Pricing and margin calculators
+- Budget and planning spreadsheets
+- Ops or RevOps reporting workbooks
+- Pull requests that include `.xlsx` files
+
+---
+
+## Local-First
+
+SheetCI runs on your machine or in your CI workflow. The MVP does not upload workbooks, use a database, call an LLM API, or send file contents to a cloud service.
 
 ---
 
