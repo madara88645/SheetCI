@@ -6,6 +6,8 @@ SheetCI is a CLI-first tool that checks business-critical Excel spreadsheets (`.
 
 With SheetCI, you can catch silent spreadsheet bugs (like broken references, circular formulas, or hardcoded values in calculations) before they make it into production or financial reports.
 
+![Animated tour: sheetci scan streaming colored risk findings and a FAIL risk score for a broken workbook](docs/assets/sheetci-demo.gif)
+
 ![SheetCI audit report screenshot](docs/assets/sheetci-report.png)
 
 ---
