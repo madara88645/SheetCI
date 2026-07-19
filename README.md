@@ -114,9 +114,9 @@ Expected result:
 
 ---
 
-## Launch and Feedback
+## Feedback
 
-SheetCI is an early MVP. The initial launch plan, copy-paste sharing posts, feedback questions, and success signals are documented in [`docs/launch-plan.md`](docs/launch-plan.md).
+SheetCI is an early MVP and feedback is very welcome — please [open an issue](https://github.com/madara88645/SheetCI/issues) with the workbook pattern you'd like it to catch.
 
 ---
 
