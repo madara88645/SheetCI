@@ -8,6 +8,8 @@ from sheetci.formula import (  # noqa: F401  (re-exported for backwards compatib
     extract_hardcoded_numbers,
     normalize_formula,
 )
+from sheetci.formula import has_external_reference, is_column_aggregate
+from sheetci.grouping import group_findings, score_findings
 
 # Severities
 SEV_CRITICAL = "critical"
@@ -65,6 +67,7 @@ class WorkbookScanner:
                 self.findings.append({
                     "sheet_name": sheet_name,
                     "cell_address": None,
+                    "formula": None,
                     "rule_id": RULE_HIDDEN_SHEET,
                     "severity": SEV_WARNING,
                     "explanation": f"Worksheet '{sheet_name}' is hidden or very hidden.",
@@ -87,6 +90,7 @@ class WorkbookScanner:
                             self.findings.append({
                                 "sheet_name": sheet_name,
                                 "cell_address": cell_address,
+                                "formula": formula_str,
                                 "rule_id": RULE_BROKEN_REF,
                                 "severity": SEV_CRITICAL,
                                 "explanation": f"Formula contains broken reference (#REF!): {formula_str}",
@@ -94,11 +98,11 @@ class WorkbookScanner:
                             })
                             
                         # 2. EXTERNAL_LINK check
-                        # Check for '[', '.xlsx', '.xls', 'http://', 'https://'
-                        if any(x in formula_str.lower() for x in ["[", ".xlsx", ".xls", "http://", "https://"]):
+                        if has_external_reference(formula_str):
                             self.findings.append({
                                 "sheet_name": sheet_name,
                                 "cell_address": cell_address,
+                                "formula": formula_str,
                                 "rule_id": RULE_EXTERNAL_LINK,
                                 "severity": SEV_WARNING,
                                 "explanation": f"Formula references an external workbook or URL: {formula_str}",
@@ -112,6 +116,7 @@ class WorkbookScanner:
                             self.findings.append({
                                 "sheet_name": sheet_name,
                                 "cell_address": cell_address,
+                                "formula": formula_str,
                                 "rule_id": RULE_HARDCODED_NUMBER,
                                 "severity": SEV_INFO,
                                 "explanation": f"Formula contains hardcoded numeric constants: {formula_str} (constants: {nums_str})",
@@ -133,6 +138,7 @@ class WorkbookScanner:
                             self.findings.append({
                                 "sheet_name": sheet_name,
                                 "cell_address": cell_address,
+                                "formula": formula_str,
                                 "rule_id": RULE_SELF_REFERENCE,
                                 "severity": SEV_CRITICAL,
                                 "explanation": f"Formula contains a circular self-reference to its own cell: {formula_str}",
@@ -146,6 +152,7 @@ class WorkbookScanner:
                             self.findings.append({
                                 "sheet_name": sheet_name,
                                 "cell_address": cell_address,
+                                "formula": formula_str,
                                 "rule_id": RULE_CACHED_ERROR,
                                 "severity": SEV_CRITICAL,
                                 "explanation": f"Cell has a cached calculation error value: {cached_val}",
@@ -182,57 +189,38 @@ class WorkbookScanner:
                 if majority_percentage >= 0.8:
                     # Identify cells that deviate from majority
                     for (cell, f_str), norm in zip(cells_info, normalized_list):
-                        if norm != majority_pattern:
-                            self.findings.append({
-                                "sheet_name": sheet_name,
-                                "cell_address": cell.coordinate,
-                                "rule_id": RULE_INCONSISTENT_FORMULA,
-                                "severity": SEV_WARNING,
-                                "explanation": f"Formula is inconsistent with neighboring cells in column {col_letter}: {f_str} (expected pattern similar to: {majority_pattern})",
-                                "suggested_action": "Check if the formula was modified intentionally or copied down incorrectly."
-                            })
+                        if norm == majority_pattern:
+                            continue
+                        # A totals row under (or over) the column is normal practice.
+                        if is_column_aggregate(f_str, col_letter):
+                            continue
+                        self.findings.append({
+                            "sheet_name": sheet_name,
+                            "cell_address": cell.coordinate,
+                            "formula": f_str,
+                            "rule_id": RULE_INCONSISTENT_FORMULA,
+                            "severity": SEV_WARNING,
+                            "explanation": f"Formula is inconsistent with neighboring cells in column {col_letter}: {f_str} (expected pattern similar to: {majority_pattern})",
+                            "suggested_action": "Check if the formula was modified intentionally or copied down incorrectly."
+                        })
 
-        # Calculate risk score
-        # critical: +30, warning: +10, info: +3, capped at 100
-        risk_score = 0
-        critical_count = 0
-        warning_count = 0
-        info_count = 0
-        
-        for finding in self.findings:
-            sev = finding["severity"]
-            if sev == SEV_CRITICAL:
-                risk_score += 30
-                critical_count += 1
-            elif sev == SEV_WARNING:
-                risk_score += 10
-                warning_count += 1
-            elif sev == SEV_INFO:
-                risk_score += 3
-                info_count += 1
-                
-        risk_score = min(risk_score, 100)
-        
-        # Pass/Fail conditions:
-        # Fails if any critical finding exists OR risk score >= 70
-        is_pass = (critical_count == 0) and (risk_score < 70)
-        
+        # Collapse repeated patterns before scoring: one formula copied down forty
+        # rows is one problem, not forty.
+        groups = group_findings(self.findings)
+        summary = score_findings(groups)
+
         self.metadata = {
             "workbook_name": openpyxl.utils.escape.unescape(self.filepath.split("/")[-1]),
             "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "total_sheets": total_sheets,
             "total_formulas": total_formulas,
-            "total_findings": len(self.findings),
-            "risk_score": risk_score,
-            "status": "PASS" if is_pass else "FAIL",
-            "counts": {
-                "critical": critical_count,
-                "warning": warning_count,
-                "info": info_count
-            }
+            "total_findings": len(groups),
+            "risk_score": summary["risk_score"],
+            "status": summary["status"],
+            "counts": summary["counts"],
         }
-        
+
         return {
             "metadata": self.metadata,
-            "findings": self.findings
+            "findings": groups,
         }

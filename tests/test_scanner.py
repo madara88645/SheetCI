@@ -235,6 +235,57 @@ def test_absolute_self_reference_is_still_detected(tmp_path):
     assert findings[0]["cell_address"] == "C5"
 
 
+def test_structured_table_reference_is_not_an_external_link(tmp_path):
+    wb_path = tmp_path / "table_ref.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws["A1"] = "=SUM(Table1[Amount])"
+    wb.save(wb_path)
+
+    res = WorkbookScanner(str(wb_path)).scan()
+
+    findings = [f for f in res["findings"] if f["rule_id"] == RULE_EXTERNAL_LINK]
+    assert findings == []
+
+
+def test_totals_row_is_not_an_inconsistent_formula(tmp_path):
+    wb_path = tmp_path / "totals_row.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    for r in range(2, 8):
+        ws[f"A{r}"] = r
+        ws[f"B{r}"] = 10
+        ws[f"C{r}"] = f"=A{r}*B{r}"
+    ws["C8"] = "=SUM(C2:C7)"
+    wb.save(wb_path)
+
+    res = WorkbookScanner(str(wb_path)).scan()
+
+    findings = [f for f in res["findings"] if f["rule_id"] == RULE_INCONSISTENT_FORMULA]
+    assert findings == []
+
+
+def test_repeated_pattern_is_reported_once(tmp_path):
+    wb_path = tmp_path / "repeated.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    for r in range(2, 12):
+        ws[f"A{r}"] = r
+        ws[f"B{r}"] = f"=A{r}*7.5"
+    wb.save(wb_path)
+
+    res = WorkbookScanner(str(wb_path)).scan()
+
+    findings = [f for f in res["findings"] if f["rule_id"] == RULE_HARDCODED_NUMBER]
+    assert len(findings) == 1
+    assert findings[0]["occurrences"] == 10
+    assert findings[0]["cell_range"] == "B2:B11"
+    assert res["metadata"]["total_findings"] == 1
+    assert res["metadata"]["counts"]["info"] == 1
+    assert res["metadata"]["risk_score"] == 3
+    assert res["metadata"]["status"] == "PASS"
+
+
 def test_range_ending_on_own_cell_is_still_self_reference(tmp_path):
     wb_path = tmp_path / "range_self_ref.xlsx"
     wb = openpyxl.Workbook()
