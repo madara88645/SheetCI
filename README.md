@@ -114,6 +114,24 @@ Expected result:
 - Findings: `8`
 - Example Markdown report: [`docs/example-report.md`](docs/example-report.md)
 
+### Healthy workbook
+
+`examples/realistic-model.xlsx` is a well-built commission model: rates live on an
+assumptions sheet, currency is rounded, and each column has a totals row. It is included so
+the opposite case is testable too.
+
+```bash
+sheetci scan examples/realistic-model.xlsx
+```
+
+Expected result:
+
+- Status: `PASS`
+- Exit code: `0`
+
+Findings that repeat down a column are reported once, with an occurrence count and a cell
+range, rather than once per row.
+
 ---
 
 ## Feedback

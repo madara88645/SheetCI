@@ -82,3 +82,26 @@ def test_markdown_report_shows_occurrence_counts(tmp_path):
     content = md_report.read_text(encoding="utf-8")
     assert "**Location**:" in content
     assert "Occurrences" in content
+
+
+def test_realistic_model_passes():
+    """A healthy workbook must not fail. This is the regression that started this work."""
+    result = runner.invoke(app, ["scan", "examples/realistic-model.xlsx", "--json"])
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data["metadata"]["status"] == "PASS"
+    assert data["metadata"]["counts"]["critical"] == 0
+    assert data["metadata"]["counts"]["warning"] == 0
+    assert len(data["findings"]) <= 5
+
+
+def test_broken_model_still_detects_criticals():
+    """Noise reduction must not cost detection power."""
+    result = runner.invoke(app, ["scan", "examples/broken-commission-model.xlsx", "--json"])
+    assert result.exit_code == 1
+    data = json.loads(result.stdout)
+    assert data["metadata"]["status"] == "FAIL"
+    rules = {f["rule_id"] for f in data["findings"]}
+    assert "BROKEN_REF" in rules
+    assert "SELF_REFERENCE" in rules
+    assert "CACHED_ERROR" in rules
