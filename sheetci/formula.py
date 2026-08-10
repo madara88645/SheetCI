@@ -170,3 +170,35 @@ def has_external_reference(formula: str) -> bool:
     """True when the formula points at another workbook or a URL."""
     remaining = strip_table_references(formula).lower()
     return any(marker in remaining for marker in _EXTERNAL_MARKERS)
+
+
+_AGGREGATE_FUNCTIONS = {
+    "SUM",
+    "AVERAGE",
+    "COUNT",
+    "COUNTA",
+    "MIN",
+    "MAX",
+    "MEDIAN",
+    "SUBTOTAL",
+}
+
+_OUTER_FUNCTION = re.compile(r"^=\s*([A-Za-z_][A-Za-z0-9_.]*)\s*\(")
+
+
+def is_column_aggregate(formula: str, column_letter: str) -> bool:
+    """True when the formula aggregates a range inside its own column.
+
+    This is the totals-row shape: a column of `=A2*B2` formulas with `=SUM(E2:E41)`
+    underneath is normal spreadsheet practice, not an inconsistency.
+    """
+    match = _OUTER_FUNCTION.match(formula)
+    if not match or match.group(1).upper() not in _AGGREGATE_FUNCTIONS:
+        return False
+
+    col = re.escape(column_letter.upper())
+    cell_range = re.compile(rf"\$?{col}\$?\d+\s*:\s*\$?{col}\$?\d+", re.IGNORECASE)
+    whole_column = re.compile(
+        rf"(?<![A-Za-z0-9_$]){col}\s*:\s*{col}(?![A-Za-z0-9_])", re.IGNORECASE
+    )
+    return bool(cell_range.search(formula) or whole_column.search(formula))

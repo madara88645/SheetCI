@@ -93,3 +93,34 @@ def test_plain_formula_is_not_external():
 
 def test_strip_leaves_surrounding_text():
     assert strip_table_references("=SUM(Table1[Amount])").strip() == "=SUM( )".strip()
+
+
+from sheetci.formula import is_column_aggregate
+
+
+def test_sum_over_own_column_is_an_aggregate():
+    assert is_column_aggregate("=SUM(E2:E41)", "E") is True
+
+
+def test_whole_column_sum_is_an_aggregate():
+    assert is_column_aggregate("=SUM(E:E)", "E") is True
+
+
+def test_aggregate_over_a_different_column_does_not_count():
+    assert is_column_aggregate("=SUM(D2:D41)", "E") is False
+
+
+def test_non_aggregate_function_does_not_count():
+    assert is_column_aggregate("=IF(E2>1,E3,E4)", "E") is False
+
+
+def test_arithmetic_formula_does_not_count():
+    assert is_column_aggregate("=E2*E3", "E") is False
+
+
+def test_subtotal_counts_as_an_aggregate():
+    assert is_column_aggregate("=SUBTOTAL(9,E2:E41)", "E") is True
+
+
+def test_column_letter_is_case_insensitive():
+    assert is_column_aggregate("=sum(e2:e41)", "E") is True
