@@ -62,3 +62,34 @@ def test_iter_reports_function_and_argument_position():
 
 def test_iter_reports_none_function_at_top_level():
     assert list(iter_numeric_literals("=B3/B2*100")) == [(100.0, None, 0)]
+
+
+from sheetci.formula import has_external_reference, strip_table_references
+
+
+def test_simple_table_reference_is_not_external():
+    assert has_external_reference("=SUM(Table1[Amount])") is False
+
+
+def test_nested_table_reference_is_not_external():
+    assert has_external_reference("=SUM(Table1[[#Headers],[Amount]])") is False
+
+
+def test_external_workbook_link_is_detected():
+    assert has_external_reference("=[Budget.xlsx]Sheet1!B2") is True
+
+
+def test_quoted_path_external_link_is_detected():
+    assert has_external_reference("='C:\\\\models\\\\[q3.xlsx]Sheet1'!A1") is True
+
+
+def test_url_is_detected():
+    assert has_external_reference('=WEBSERVICE("https://example.com/rates")') is True
+
+
+def test_plain_formula_is_not_external():
+    assert has_external_reference("=A1*B1") is False
+
+
+def test_strip_leaves_surrounding_text():
+    assert strip_table_references("=SUM(Table1[Amount])").strip() == "=SUM( )".strip()

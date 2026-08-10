@@ -146,3 +146,27 @@ def extract_hardcoded_numbers(formula: str) -> List[float]:
             continue
         results.append(value)
     return results
+
+
+# A structured table reference is an identifier immediately followed by a bracket
+# group: Table1[Amount], Table1[[#Headers],[Amount]]. The inner alternation uses
+# `+` rather than `*` so the outer quantifier can never loop on an empty match.
+_TABLE_REF = re.compile(r"[A-Za-z_][A-Za-z0-9_.]*\[(?:[^\[\]]+|\[[^\[\]]*\])*\]")
+
+_EXTERNAL_MARKERS = ("[", ".xlsx", ".xls", "http://", "https://")
+
+
+def strip_table_references(formula: str) -> str:
+    """Remove structured table references so they cannot look like external links."""
+    previous = None
+    current = formula
+    while previous != current:
+        previous = current
+        current = _TABLE_REF.sub(" ", current)
+    return current
+
+
+def has_external_reference(formula: str) -> bool:
+    """True when the formula points at another workbook or a URL."""
+    remaining = strip_table_references(formula).lower()
+    return any(marker in remaining for marker in _EXTERNAL_MARKERS)
