@@ -113,15 +113,22 @@ class WorkbookScanner:
                                 "sheet_name": sheet_name,
                                 "cell_address": cell_address,
                                 "rule_id": RULE_HARDCODED_NUMBER,
-                                "severity": SEV_WARNING,
+                                "severity": SEV_INFO,
                                 "explanation": f"Formula contains hardcoded numeric constants: {formula_str} (constants: {nums_str})",
                                 "suggested_action": "Move hardcoded constants to input cells or parameters to make the model dynamic."
                             })
                             
                         # 5. SELF_REFERENCE check
+                        # The negative lookbehind keeps `=Sheet2!C5` in cell C5 from
+                        # matching: that points at another sheet, not at this cell.
+                        # A range endpoint such as `=SUM(A1:C5)` in C5 still matches,
+                        # because that genuinely is circular.
                         col_letter = cell.column_letter
                         row_num = cell.row
-                        self_ref_pattern = re.compile(rf"\b\$?{col_letter}\$?{row_num}\b", re.IGNORECASE)
+                        self_ref_pattern = re.compile(
+                            rf"(?<![A-Za-z0-9_!$])\$?{col_letter}\$?{row_num}\b",
+                            re.IGNORECASE,
+                        )
                         if self_ref_pattern.search(formula_str):
                             self.findings.append({
                                 "sheet_name": sheet_name,

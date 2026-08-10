@@ -91,7 +91,7 @@ def test_hardcoded_number_detector(tmp_path):
     findings = [f for f in res["findings"] if f["rule_id"] == RULE_HARDCODED_NUMBER]
     assert len(findings) == 1
     assert findings[0]["cell_address"] == "A1"
-    assert findings[0]["severity"] == "warning"
+    assert findings[0]["severity"] == "info"
 
 def test_self_reference_detector(tmp_path):
     wb_path = tmp_path / "self_ref.xlsx"
@@ -177,15 +177,73 @@ def test_risk_score_calculation(tmp_path):
     wb_path = tmp_path / "risk_test.xlsx"
     wb = openpyxl.Workbook()
     ws = wb.active
-    # Let's add 1 critical (self ref) and 2 warnings (hardcoded number and external link)
+    # 1 critical (self ref, +30), 1 warning (external link, +10), 1 info (hardcoded, +3)
     ws["A1"] = "=A1+1"  # critical: +30
-    ws["B2"] = "=C2*0.08"  # warning: +10
+    ws["B2"] = "=C2*0.08"  # info: +3
     ws["D2"] = "=[Other.xlsx]Sheet1!A1"  # warning: +10
-    # Total risk score should be 30 + 10 + 10 = 50
+    # Total risk score should be 30 + 10 + 3 = 43
     wb.save(wb_path)
     
     scanner = WorkbookScanner(str(wb_path))
     res = scanner.scan()
     
-    assert res["metadata"]["risk_score"] == 50
+    assert res["metadata"]["risk_score"] == 43
     assert res["metadata"]["status"] == "FAIL"  # fails because critical exists (even if score < 70)
+
+
+def test_sheet_qualified_reference_is_not_self_reference(tmp_path):
+    wb_path = tmp_path / "cross_sheet.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Main"
+    wb.create_sheet("Sheet2")
+    ws["C5"] = "=Sheet2!C5"
+    wb.save(wb_path)
+
+    res = WorkbookScanner(str(wb_path)).scan()
+
+    findings = [f for f in res["findings"] if f["rule_id"] == RULE_SELF_REFERENCE]
+    assert findings == []
+
+
+def test_sheet_qualified_absolute_reference_is_not_self_reference(tmp_path):
+    wb_path = tmp_path / "cross_sheet_absolute.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Main"
+    wb.create_sheet("Sheet2")
+    ws["C5"] = "=Sheet2!$C$5"
+    wb.save(wb_path)
+
+    res = WorkbookScanner(str(wb_path)).scan()
+
+    findings = [f for f in res["findings"] if f["rule_id"] == RULE_SELF_REFERENCE]
+    assert findings == []
+
+
+def test_absolute_self_reference_is_still_detected(tmp_path):
+    wb_path = tmp_path / "absolute_self_ref.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws["C5"] = "=$C$5+1"
+    wb.save(wb_path)
+
+    res = WorkbookScanner(str(wb_path)).scan()
+
+    findings = [f for f in res["findings"] if f["rule_id"] == RULE_SELF_REFERENCE]
+    assert len(findings) == 1
+    assert findings[0]["cell_address"] == "C5"
+
+
+def test_range_ending_on_own_cell_is_still_self_reference(tmp_path):
+    wb_path = tmp_path / "range_self_ref.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws["C5"] = "=SUM(A1:C5)"
+    wb.save(wb_path)
+
+    res = WorkbookScanner(str(wb_path)).scan()
+
+    findings = [f for f in res["findings"] if f["rule_id"] == RULE_SELF_REFERENCE]
+    assert len(findings) == 1
+    assert findings[0]["cell_address"] == "C5"
