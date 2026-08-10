@@ -124,3 +124,12 @@ def test_subtotal_counts_as_an_aggregate():
 
 def test_column_letter_is_case_insensitive():
     assert is_column_aggregate("=sum(e2:e41)", "E") is True
+
+
+from sheetci.formula import normalize_formula
+
+
+def test_normalize_formula_moved_to_formula_module():
+    assert normalize_formula("=A2*B2", 2) == "=A[0]*B[0]"
+    assert normalize_formula("=$A$2*B$2", 2) == "=$A$2*B$2"
+    assert normalize_formula("=A4+A6", 5) == "=A[-1]+A[1]"

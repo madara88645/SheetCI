@@ -3,6 +3,12 @@ import datetime
 from typing import Dict, List, Any, Optional
 import openpyxl
 
+from sheetci.formula import (  # noqa: F401  (re-exported for backwards compatibility)
+    REF_PATTERN,
+    extract_hardcoded_numbers,
+    normalize_formula,
+)
+
 # Severities
 SEV_CRITICAL = "critical"
 SEV_WARNING = "warning"
@@ -17,10 +23,6 @@ RULE_SELF_REFERENCE = "SELF_REFERENCE"
 RULE_INCONSISTENT_FORMULA = "INCONSISTENT_FORMULA"
 RULE_CACHED_ERROR = "CACHED_ERROR"
 
-# Reference pattern for cell references (e.g., A1, $B$10, C$5)
-# Ensures it is not followed by alphanumeric chars or a parenthesis (which indicates a function call like LOG10() or DEC2HEX())
-REF_PATTERN = re.compile(r'(\$?)([A-Z]{1,3})(\$?)([0-9]+)(?![A-Z0-9_]|\s*\()', re.IGNORECASE)
-
 # Standard Excel error values
 EXCEL_ERRORS = {
     "#NULL!",
@@ -31,62 +33,6 @@ EXCEL_ERRORS = {
     "#NUM!",
     "#N/A",
 }
-
-def normalize_formula(formula: str, cell_row: int) -> str:
-    """
-    Normalizes a formula relative to the cell's row.
-    Relative row references are converted to relative offsets (e.g. A2 -> A[0] if cell_row=2).
-    """
-    def replace_ref(match):
-        col_abs = match.group(1)
-        col = match.group(2)
-        row_abs = match.group(3)
-        row_str = match.group(4)
-        
-        if row_abs == '$':
-            # Absolute row reference - keep as is
-            return match.group(0)
-        else:
-            offset = int(row_str) - cell_row
-            return f"{col_abs}{col}[{offset}]"
-            
-    return REF_PATTERN.sub(replace_ref, formula)
-
-def extract_hardcoded_numbers(formula: str) -> List[float]:
-    """
-    Extracts hardcoded numeric constants from a formula string.
-    Strips out string literals, sheet references, cell references/ranges, and function names first.
-    """
-    # 1. Strip string literals
-    cleaned = re.sub(r'"[^"]*"', ' ', formula)
-    cleaned = re.sub(r"'[^']*'", ' ', cleaned)
-    
-    # 2. Strip sheet references (e.g. 'Sheet 1'! or Sheet1!)
-    cleaned = re.sub(r"'(?:[^']|'')+'!", ' ', cleaned)
-    cleaned = re.sub(r"[a-zA-Z_0-9]+!", ' ', cleaned)
-    
-    # 3. Strip cell references & ranges
-    cleaned = REF_PATTERN.sub(' ', cleaned)
-    cleaned = re.sub(r'\b[A-Z]{1,3}:[A-Z]{1,3}\b', ' ', cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r'\b[0-9]+:[0-9]+\b', ' ', cleaned)
-    
-    # 4. Strip functions and identifiers (e.g. SUM, AVERAGE, DEC2HEX, LOG10)
-    cleaned = re.sub(r'\b[A-Z_][A-Z0-9_\.]*\b', ' ', cleaned, flags=re.IGNORECASE)
-    
-    # 5. Find remaining numeric values
-    numbers = re.findall(r'\b\d+(?:\.\d+)?\b', cleaned)
-    
-    results = []
-    for num_str in numbers:
-        try:
-            val = float(num_str)
-            # Ignore standard harmless constants: 0, 1, -1, 2
-            # (since we look at unsigned values, 0, 1, 2 cover -0, -1, -2 as well)
-            if val not in {0.0, 1.0, 2.0}:
-                results.append(val)
-        except ValueError:
-            pass
-    return results
 
 class WorkbookScanner:
     def __init__(self, filepath: str):

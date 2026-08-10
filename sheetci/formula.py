@@ -36,6 +36,31 @@ STRUCTURAL_ARGS: Dict[str, Set[int]] = {
 _IDENT_START = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_$")
 _IDENT_CHARS = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.$")
 
+# Reference pattern for cell references (e.g., A1, $B$10, C$5)
+# Ensures it is not followed by alphanumeric chars or a parenthesis (which indicates a function call like LOG10() or DEC2HEX())
+REF_PATTERN = re.compile(r'(\$?)([A-Z]{1,3})(\$?)([0-9]+)(?![A-Z0-9_]|\s*\()', re.IGNORECASE)
+
+
+def normalize_formula(formula: str, cell_row: int) -> str:
+    """
+    Normalizes a formula relative to the cell's row.
+    Relative row references are converted to relative offsets (e.g. A2 -> A[0] if cell_row=2).
+    """
+    def replace_ref(match):
+        col_abs = match.group(1)
+        col = match.group(2)
+        row_abs = match.group(3)
+        row_str = match.group(4)
+
+        if row_abs == '$':
+            # Absolute row reference - keep as is
+            return match.group(0)
+        else:
+            offset = int(row_str) - cell_row
+            return f"{col_abs}{col}[{offset}]"
+
+    return REF_PATTERN.sub(replace_ref, formula)
+
 
 def _skip_quoted(formula: str, i: int, quote: str) -> int:
     """Return the index just past the quoted run starting at `i`.
