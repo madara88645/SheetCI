@@ -72,7 +72,7 @@ def scan(
         if findings:
             typer.echo("\nFindings Detail:")
             for f in findings:
-                location = f.get("cell_range") or "[Sheet-Level]"
+                location = f.get("cell_range") or "Sheet-Level"
                 occurrences = f.get("occurrences", 1)
                 count = f" x{occurrences}" if occurrences > 1 else ""
                 typer.echo(f"- {f['severity'].upper()} ({f['rule_id']}) in {f['sheet_name']} [{location}]{count}: {f['explanation']}")

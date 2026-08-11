@@ -79,6 +79,19 @@ def _skip_quoted(formula: str, i: int, quote: str) -> int:
     return i
 
 
+def _innermost_call(stack: List[List]) -> Tuple[Optional[str], int]:
+    """Return the nearest enclosing function call and the argument index within it.
+
+    A parenthesis with no identifier in front of it groups an expression rather than
+    opening a call, so those frames are skipped: in `=ROUND((B2*1.15),2)` the 1.15
+    still belongs to ROUND argument 1. Returns (None, 0) when nothing encloses it.
+    """
+    for name, arg_index in reversed(stack):
+        if name:
+            return name, arg_index
+    return None, 0
+
+
 def iter_numeric_literals(formula: str) -> Iterator[Tuple[float, Optional[str], int]]:
     """Yield (value, innermost function name, 1-based argument index) per literal.
 
@@ -150,10 +163,8 @@ def iter_numeric_literals(formula: str) -> Iterator[Tuple[float, Optional[str], 
                 last_ident = None
                 continue
 
-            if stack:
-                yield value, stack[-1][0] or None, stack[-1][1]
-            else:
-                yield value, None, 0
+            func_name, arg_index = _innermost_call(stack)
+            yield value, func_name, arg_index
             last_ident = None
             continue
 

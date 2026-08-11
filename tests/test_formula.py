@@ -133,3 +133,22 @@ def test_normalize_formula_moved_to_formula_module():
     assert normalize_formula("=A2*B2", 2) == "=A[0]*B[0]"
     assert normalize_formula("=$A$2*B$2", 2) == "=$A$2*B$2"
     assert normalize_formula("=A4+A6", 5) == "=A[-1]+A[1]"
+
+
+def test_grouping_parentheses_do_not_hide_the_enclosing_function():
+    # The inner parens group an expression, they are not a call, so 1.15 is still
+    # ROUND argument 1 rather than being attributed to an anonymous frame.
+    assert list(iter_numeric_literals("=ROUND((B2*1.15),2)")) == [
+        (1.15, "ROUND", 1),
+        (2.0, "ROUND", 2),
+    ]
+
+
+def test_structural_suppression_survives_grouping_parentheses():
+    # The column index is structural whether or not it is wrapped in parens.
+    assert extract_hardcoded_numbers("=VLOOKUP(A1,R,(5),FALSE)") == []
+
+
+def test_top_level_grouping_parentheses_report_no_function():
+    # With no enclosing call the function name is None, so the index must be 0.
+    assert list(iter_numeric_literals("=(A1*100)")) == [(100.0, None, 0)]
