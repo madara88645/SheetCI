@@ -52,3 +52,56 @@ def test_reports_generation(tmp_path):
     html_content = html_report.read_text(encoding="utf-8")
     assert "<title>SheetCI Audit Report" in html_content
     assert 'id="sheetci-report"' in html_content
+
+def test_console_output_shows_occurrence_counts(tmp_path):
+    import openpyxl
+
+    wb_path = tmp_path / "repeated.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    for r in range(2, 12):
+        ws[f"A{r}"] = r
+        ws[f"B{r}"] = f"=A{r}*7.5"
+    wb.save(wb_path)
+
+    result = runner.invoke(app, ["scan", str(wb_path)])
+
+    assert result.exit_code == 0
+    assert "B2:B11" in result.stdout
+    assert "x10" in result.stdout
+
+
+def test_markdown_report_shows_occurrence_counts(tmp_path):
+    md_report = tmp_path / "report.md"
+    result = runner.invoke(app, [
+        "scan",
+        "examples/broken-commission-model.xlsx",
+        "--out", str(md_report),
+    ])
+    assert result.exit_code == 1
+    content = md_report.read_text(encoding="utf-8")
+    assert "**Location**:" in content
+    assert "Occurrences" in content
+
+
+def test_realistic_model_passes():
+    """A healthy workbook must not fail. This is the regression that started this work."""
+    result = runner.invoke(app, ["scan", "examples/realistic-model.xlsx", "--json"])
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data["metadata"]["status"] == "PASS"
+    assert data["metadata"]["counts"]["critical"] == 0
+    assert data["metadata"]["counts"]["warning"] == 0
+    assert len(data["findings"]) <= 5
+
+
+def test_broken_model_still_detects_criticals():
+    """Noise reduction must not cost detection power."""
+    result = runner.invoke(app, ["scan", "examples/broken-commission-model.xlsx", "--json"])
+    assert result.exit_code == 1
+    data = json.loads(result.stdout)
+    assert data["metadata"]["status"] == "FAIL"
+    rules = {f["rule_id"] for f in data["findings"]}
+    assert "BROKEN_REF" in rules
+    assert "SELF_REFERENCE" in rules
+    assert "CACHED_ERROR" in rules

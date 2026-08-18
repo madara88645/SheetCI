@@ -135,6 +135,65 @@ def create_clean_model(filepath: str):
     wb.save(filepath)
     print(f"Created clean model: {filepath}")
 
+def create_realistic_model(filepath: str):
+    """A healthy model written the way a competent analyst writes one.
+
+    Nothing here is a defect: rates live on a dedicated assumptions sheet and are
+    referenced absolutely, currency is rounded, and each numeric column has a
+    totals row. SheetCI must pass this file.
+    """
+    wb = openpyxl.Workbook()
+
+    ws = wb.active
+    ws.title = "Assumptions"
+    ws["A1"] = "Parameter"
+    ws["B1"] = "Value"
+    ws["A2"] = "VAT rate"
+    ws["B2"] = 0.20
+    ws["A3"] = "Commission rate"
+    ws["B3"] = 0.075
+    ws["A4"] = "Discount tier"
+    ws["B4"] = 0.05
+
+    ws2 = wb.create_sheet("Sales")
+    headers = ["Rep", "Region", "Units", "Unit Price", "Gross", "VAT", "Net", "Commission", "Band"]
+    for i, header in enumerate(headers, start=1):
+        ws2.cell(row=1, column=i, value=header)
+
+    for r in range(2, 42):
+        ws2.cell(row=r, column=1, value=f"Rep {r - 1}")
+        ws2.cell(row=r, column=2, value="EMEA" if r % 2 else "AMER")
+        ws2.cell(row=r, column=3, value=100 + r)
+        ws2.cell(row=r, column=4, value=19.99)
+        ws2.cell(row=r, column=5, value=f"=C{r}*D{r}")
+        ws2.cell(row=r, column=6, value=f"=E{r}*Assumptions!$B$2")
+        ws2.cell(row=r, column=7, value=f"=E{r}-F{r}")
+        ws2.cell(row=r, column=8, value=f"=ROUND(G{r}*Assumptions!$B$3,2)")
+        ws2.cell(row=r, column=9, value=f'=IF(C{r}>150,"High",IF(C{r}>120,"Mid","Low"))')
+
+    ws2["E42"] = "=SUM(E2:E41)"
+    ws2["G42"] = "=SUM(G2:G41)"
+    ws2["H42"] = "=SUM(H2:H41)"
+
+    ws3 = wb.create_sheet("Summary")
+    ws3["A1"] = "Metric"
+    ws3["B1"] = "Value"
+    ws3["A2"] = "Total Gross"
+    ws3["B2"] = "=Sales!E42"
+    ws3["A3"] = "Total Commission"
+    ws3["B3"] = "=Sales!H42"
+    ws3["A4"] = "Avg Unit Price"
+    ws3["B4"] = "=AVERAGE(Sales!D2:D41)"
+    ws3["B5"] = '=VLOOKUP("Rep 1",Sales!A2:I41,5,FALSE)'
+    ws3["B6"] = '=INDEX(Sales!G2:G41,MATCH("Rep 3",Sales!A2:A41,0))'
+    ws3["B7"] = "=B3/B2*100"
+    ws3["B8"] = "=EOMONTH(TODAY(),12)"
+
+    os.makedirs(os.path.dirname(filepath), exist_ok=True)
+    wb.save(filepath)
+    print(f"Created realistic model: {filepath}")
+
 if __name__ == "__main__":
     create_broken_model("examples/broken-commission-model.xlsx")
     create_clean_model("examples/clean-model.xlsx")
+    create_realistic_model("examples/realistic-model.xlsx")

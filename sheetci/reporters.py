@@ -29,10 +29,12 @@ def generate_markdown(result: Dict[str, Any]) -> str:
     infos = [f for f in findings if f["severity"] == "info"]
     
     def render_finding(finding: Dict[str, Any]) -> str:
-        addr = finding["cell_address"] or "Sheet-Level"
+        location = finding.get("cell_range") or "Sheet-Level"
+        occurrences = finding.get("occurrences", 1)
         return (
             f"### {finding['rule_id']} ({finding['severity'].upper()})\n"
-            f"- **Location**: Sheet `{finding['sheet_name']}`, Cell `{addr}`\n"
+            f"- **Location**: Sheet `{finding['sheet_name']}`, Cells `{location}`\n"
+            f"- **Occurrences**: {occurrences}\n"
             f"- **Issue**: {finding['explanation']}\n"
             f"- **Action**: {finding['suggested_action']}\n"
         )
@@ -335,7 +337,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                     </span>
                 </div>
                 <div class="finding-meta" style="margin-bottom: 0.5rem;">
-                    Location: Sheet <strong>{{ f.sheet_name }}</strong>{% if f.cell_address %}, Cell <strong>{{ f.cell_address }}</strong>{% endif %}
+                    Location: Sheet <strong>{{ f.sheet_name }}</strong>{% if f.cell_range and f.cell_range != 'Sheet-Level' %}, Cells <strong>{{ f.cell_range }}</strong>{% endif %}{% if f.occurrences and f.occurrences > 1 %} &middot; <strong>{{ f.occurrences }} occurrences</strong>{% endif %}
                 </div>
                 <div class="finding-detail">
                     {{ f.explanation }}

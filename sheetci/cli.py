@@ -72,8 +72,10 @@ def scan(
         if findings:
             typer.echo("\nFindings Detail:")
             for f in findings:
-                cell_info = f"[{f['cell_address']}]" if f['cell_address'] else "[Sheet-Level]"
-                typer.echo(f"- {f['severity'].upper()} ({f['rule_id']}) in {f['sheet_name']} {cell_info}: {f['explanation']}")
+                location = f.get("cell_range") or "Sheet-Level"
+                occurrences = f.get("occurrences", 1)
+                count = f" x{occurrences}" if occurrences > 1 else ""
+                typer.echo(f"- {f['severity'].upper()} ({f['rule_id']}) in {f['sheet_name']} [{location}]{count}: {f['explanation']}")
             typer.echo("=" * 60)
 
     # Determine exit code based on risk threshold

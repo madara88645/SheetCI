@@ -3,6 +3,14 @@ import datetime
 from typing import Dict, List, Any, Optional
 import openpyxl
 
+from sheetci.formula import (  # noqa: F401  (re-exported for backwards compatibility)
+    REF_PATTERN,
+    extract_hardcoded_numbers,
+    normalize_formula,
+)
+from sheetci.formula import has_external_reference, is_column_aggregate
+from sheetci.grouping import group_findings, score_findings
+
 # Severities
 SEV_CRITICAL = "critical"
 SEV_WARNING = "warning"
@@ -17,10 +25,6 @@ RULE_SELF_REFERENCE = "SELF_REFERENCE"
 RULE_INCONSISTENT_FORMULA = "INCONSISTENT_FORMULA"
 RULE_CACHED_ERROR = "CACHED_ERROR"
 
-# Reference pattern for cell references (e.g., A1, $B$10, C$5)
-# Ensures it is not followed by alphanumeric chars or a parenthesis (which indicates a function call like LOG10() or DEC2HEX())
-REF_PATTERN = re.compile(r'(\$?)([A-Z]{1,3})(\$?)([0-9]+)(?![A-Z0-9_]|\s*\()', re.IGNORECASE)
-
 # Standard Excel error values
 EXCEL_ERRORS = {
     "#NULL!",
@@ -31,62 +35,6 @@ EXCEL_ERRORS = {
     "#NUM!",
     "#N/A",
 }
-
-def normalize_formula(formula: str, cell_row: int) -> str:
-    """
-    Normalizes a formula relative to the cell's row.
-    Relative row references are converted to relative offsets (e.g. A2 -> A[0] if cell_row=2).
-    """
-    def replace_ref(match):
-        col_abs = match.group(1)
-        col = match.group(2)
-        row_abs = match.group(3)
-        row_str = match.group(4)
-        
-        if row_abs == '$':
-            # Absolute row reference - keep as is
-            return match.group(0)
-        else:
-            offset = int(row_str) - cell_row
-            return f"{col_abs}{col}[{offset}]"
-            
-    return REF_PATTERN.sub(replace_ref, formula)
-
-def extract_hardcoded_numbers(formula: str) -> List[float]:
-    """
-    Extracts hardcoded numeric constants from a formula string.
-    Strips out string literals, sheet references, cell references/ranges, and function names first.
-    """
-    # 1. Strip string literals
-    cleaned = re.sub(r'"[^"]*"', ' ', formula)
-    cleaned = re.sub(r"'[^']*'", ' ', cleaned)
-    
-    # 2. Strip sheet references (e.g. 'Sheet 1'! or Sheet1!)
-    cleaned = re.sub(r"'(?:[^']|'')+'!", ' ', cleaned)
-    cleaned = re.sub(r"[a-zA-Z_0-9]+!", ' ', cleaned)
-    
-    # 3. Strip cell references & ranges
-    cleaned = REF_PATTERN.sub(' ', cleaned)
-    cleaned = re.sub(r'\b[A-Z]{1,3}:[A-Z]{1,3}\b', ' ', cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r'\b[0-9]+:[0-9]+\b', ' ', cleaned)
-    
-    # 4. Strip functions and identifiers (e.g. SUM, AVERAGE, DEC2HEX, LOG10)
-    cleaned = re.sub(r'\b[A-Z_][A-Z0-9_\.]*\b', ' ', cleaned, flags=re.IGNORECASE)
-    
-    # 5. Find remaining numeric values
-    numbers = re.findall(r'\b\d+(?:\.\d+)?\b', cleaned)
-    
-    results = []
-    for num_str in numbers:
-        try:
-            val = float(num_str)
-            # Ignore standard harmless constants: 0, 1, -1, 2
-            # (since we look at unsigned values, 0, 1, 2 cover -0, -1, -2 as well)
-            if val not in {0.0, 1.0, 2.0}:
-                results.append(val)
-        except ValueError:
-            pass
-    return results
 
 class WorkbookScanner:
     def __init__(self, filepath: str):
@@ -119,6 +67,7 @@ class WorkbookScanner:
                 self.findings.append({
                     "sheet_name": sheet_name,
                     "cell_address": None,
+                    "formula": None,
                     "rule_id": RULE_HIDDEN_SHEET,
                     "severity": SEV_WARNING,
                     "explanation": f"Worksheet '{sheet_name}' is hidden or very hidden.",
@@ -141,6 +90,7 @@ class WorkbookScanner:
                             self.findings.append({
                                 "sheet_name": sheet_name,
                                 "cell_address": cell_address,
+                                "formula": formula_str,
                                 "rule_id": RULE_BROKEN_REF,
                                 "severity": SEV_CRITICAL,
                                 "explanation": f"Formula contains broken reference (#REF!): {formula_str}",
@@ -148,11 +98,11 @@ class WorkbookScanner:
                             })
                             
                         # 2. EXTERNAL_LINK check
-                        # Check for '[', '.xlsx', '.xls', 'http://', 'https://'
-                        if any(x in formula_str.lower() for x in ["[", ".xlsx", ".xls", "http://", "https://"]):
+                        if has_external_reference(formula_str):
                             self.findings.append({
                                 "sheet_name": sheet_name,
                                 "cell_address": cell_address,
+                                "formula": formula_str,
                                 "rule_id": RULE_EXTERNAL_LINK,
                                 "severity": SEV_WARNING,
                                 "explanation": f"Formula references an external workbook or URL: {formula_str}",
@@ -166,20 +116,29 @@ class WorkbookScanner:
                             self.findings.append({
                                 "sheet_name": sheet_name,
                                 "cell_address": cell_address,
+                                "formula": formula_str,
                                 "rule_id": RULE_HARDCODED_NUMBER,
-                                "severity": SEV_WARNING,
+                                "severity": SEV_INFO,
                                 "explanation": f"Formula contains hardcoded numeric constants: {formula_str} (constants: {nums_str})",
                                 "suggested_action": "Move hardcoded constants to input cells or parameters to make the model dynamic."
                             })
                             
                         # 5. SELF_REFERENCE check
+                        # The negative lookbehind keeps `=Sheet2!C5` in cell C5 from
+                        # matching: that points at another sheet, not at this cell.
+                        # A range endpoint such as `=SUM(A1:C5)` in C5 still matches,
+                        # because that genuinely is circular.
                         col_letter = cell.column_letter
                         row_num = cell.row
-                        self_ref_pattern = re.compile(rf"\b\$?{col_letter}\$?{row_num}\b", re.IGNORECASE)
+                        self_ref_pattern = re.compile(
+                            rf"(?<![A-Za-z0-9_!$])\$?{col_letter}\$?{row_num}\b",
+                            re.IGNORECASE,
+                        )
                         if self_ref_pattern.search(formula_str):
                             self.findings.append({
                                 "sheet_name": sheet_name,
                                 "cell_address": cell_address,
+                                "formula": formula_str,
                                 "rule_id": RULE_SELF_REFERENCE,
                                 "severity": SEV_CRITICAL,
                                 "explanation": f"Formula contains a circular self-reference to its own cell: {formula_str}",
@@ -193,6 +152,7 @@ class WorkbookScanner:
                             self.findings.append({
                                 "sheet_name": sheet_name,
                                 "cell_address": cell_address,
+                                "formula": formula_str,
                                 "rule_id": RULE_CACHED_ERROR,
                                 "severity": SEV_CRITICAL,
                                 "explanation": f"Cell has a cached calculation error value: {cached_val}",
@@ -229,57 +189,38 @@ class WorkbookScanner:
                 if majority_percentage >= 0.8:
                     # Identify cells that deviate from majority
                     for (cell, f_str), norm in zip(cells_info, normalized_list):
-                        if norm != majority_pattern:
-                            self.findings.append({
-                                "sheet_name": sheet_name,
-                                "cell_address": cell.coordinate,
-                                "rule_id": RULE_INCONSISTENT_FORMULA,
-                                "severity": SEV_WARNING,
-                                "explanation": f"Formula is inconsistent with neighboring cells in column {col_letter}: {f_str} (expected pattern similar to: {majority_pattern})",
-                                "suggested_action": "Check if the formula was modified intentionally or copied down incorrectly."
-                            })
+                        if norm == majority_pattern:
+                            continue
+                        # A totals row under (or over) the column is normal practice.
+                        if is_column_aggregate(f_str, col_letter):
+                            continue
+                        self.findings.append({
+                            "sheet_name": sheet_name,
+                            "cell_address": cell.coordinate,
+                            "formula": f_str,
+                            "rule_id": RULE_INCONSISTENT_FORMULA,
+                            "severity": SEV_WARNING,
+                            "explanation": f"Formula is inconsistent with neighboring cells in column {col_letter}: {f_str} (expected pattern similar to: {majority_pattern})",
+                            "suggested_action": "Check if the formula was modified intentionally or copied down incorrectly."
+                        })
 
-        # Calculate risk score
-        # critical: +30, warning: +10, info: +3, capped at 100
-        risk_score = 0
-        critical_count = 0
-        warning_count = 0
-        info_count = 0
-        
-        for finding in self.findings:
-            sev = finding["severity"]
-            if sev == SEV_CRITICAL:
-                risk_score += 30
-                critical_count += 1
-            elif sev == SEV_WARNING:
-                risk_score += 10
-                warning_count += 1
-            elif sev == SEV_INFO:
-                risk_score += 3
-                info_count += 1
-                
-        risk_score = min(risk_score, 100)
-        
-        # Pass/Fail conditions:
-        # Fails if any critical finding exists OR risk score >= 70
-        is_pass = (critical_count == 0) and (risk_score < 70)
-        
+        # Collapse repeated patterns before scoring: one formula copied down forty
+        # rows is one problem, not forty.
+        groups = group_findings(self.findings)
+        summary = score_findings(groups)
+
         self.metadata = {
             "workbook_name": openpyxl.utils.escape.unescape(self.filepath.split("/")[-1]),
             "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "total_sheets": total_sheets,
             "total_formulas": total_formulas,
-            "total_findings": len(self.findings),
-            "risk_score": risk_score,
-            "status": "PASS" if is_pass else "FAIL",
-            "counts": {
-                "critical": critical_count,
-                "warning": warning_count,
-                "info": info_count
-            }
+            "total_findings": len(groups),
+            "risk_score": summary["risk_score"],
+            "status": summary["status"],
+            "counts": summary["counts"],
         }
-        
+
         return {
             "metadata": self.metadata,
-            "findings": self.findings
+            "findings": groups,
         }
