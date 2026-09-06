@@ -8,8 +8,14 @@ on:
 
 jobs:
   test-and-smoke:
-    name: Test and SheetCI smoke checks
+    name: Test and SheetCI smoke checks (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # Covers the lowest version pyproject.toml supports and the current one.
+        python-version: ["3.11", "3.12"]
 
     steps:
       - name: Checkout
@@ -18,7 +24,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
 
       - name: Install uv
         uses: astral-sh/setup-uv@v6
@@ -26,7 +32,7 @@ jobs:
           enable-cache: true
 
       - name: Install dependencies
-        run: uv sync --extra dev
+        run: uv sync --extra dev --python ${{ matrix.python-version }}
 
       - name: Run tests
         run: uv run pytest
@@ -50,7 +56,7 @@ jobs:
       - name: Upload example reports
         uses: actions/upload-artifact@v4
         with:
-          name: sheetci-example-reports
+          name: sheetci-example-reports-py${{ matrix.python-version }}
           path: |
             sheetci-broken-report.md
             sheetci-broken-report.html
