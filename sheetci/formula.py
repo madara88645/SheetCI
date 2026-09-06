@@ -189,7 +189,11 @@ def extract_hardcoded_numbers(formula: str) -> List[float]:
 # `+` rather than `*` so the outer quantifier can never loop on an empty match.
 _TABLE_REF = re.compile(r"[A-Za-z_][A-Za-z0-9_.]*\[(?:[^\[\]]+|\[[^\[\]]*\])*\]")
 
-_EXTERNAL_MARKERS = ("[", ".xlsx", ".xls", "http://", "https://")
+# A workbook path only ever appears in formula syntax, never inside a text
+# literal, so these markers are looked for outside double-quoted strings.
+_WORKBOOK_MARKERS = ("[", ".xlsx", ".xls")
+# A URL, by contrast, is normally written as a text literal, e.g. HYPERLINK().
+_URL_MARKERS = ("http://", "https://")
 
 
 def strip_table_references(formula: str) -> str:
@@ -202,10 +206,32 @@ def strip_table_references(formula: str) -> str:
     return current
 
 
+def strip_text_literals(formula: str) -> str:
+    """Remove double-quoted text literals, keeping everything else in place.
+
+    Excel uses double quotes for text and single quotes for sheet or workbook
+    names, so only the double-quoted runs are dropped: `='[budget.xlsx]S1'!A1`
+    survives intact while the format string in `=TEXT(A1,"[$-409]#,##0")` does
+    not. Without this, punctuation inside ordinary text reads as a file path.
+    """
+    out: List[str] = []
+    i, n = 0, len(formula)
+    while i < n:
+        if formula[i] == '"':
+            i = _skip_quoted(formula, i, '"')
+            out.append(" ")
+            continue
+        out.append(formula[i])
+        i += 1
+    return "".join(out)
+
+
 def has_external_reference(formula: str) -> bool:
     """True when the formula points at another workbook or a URL."""
-    remaining = strip_table_references(formula).lower()
-    return any(marker in remaining for marker in _EXTERNAL_MARKERS)
+    outside_text = strip_text_literals(strip_table_references(formula)).lower()
+    if any(marker in outside_text for marker in _WORKBOOK_MARKERS):
+        return True
+    return any(marker in formula.lower() for marker in _URL_MARKERS)
 
 
 _AGGREGATE_FUNCTIONS = {
