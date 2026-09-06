@@ -105,3 +105,27 @@ def test_broken_model_still_detects_criticals():
     assert "BROKEN_REF" in rules
     assert "SELF_REFERENCE" in rules
     assert "CACHED_ERROR" in rules
+
+
+def test_version_flag():
+    # `--version` is what a first-time user reaches for; the `version` command
+    # alone used to be the only way to get it.
+    result = runner.invoke(app, ["--version"])
+    assert result.exit_code == 0
+    assert "SheetCI version" in result.stdout
+
+
+def test_report_parent_directory_is_created(tmp_path):
+    md_report = tmp_path / "reports" / "nested" / "report.md"
+    html_report = tmp_path / "reports" / "nested" / "report.html"
+
+    result = runner.invoke(app, [
+        "scan",
+        "examples/broken-commission-model.xlsx",
+        "--out", str(md_report),
+        "--html", str(html_report),
+    ])
+
+    assert result.exit_code == 1
+    assert md_report.exists()
+    assert html_report.exists()
