@@ -40,7 +40,14 @@ SheetCI runs on your machine or in your CI workflow. The MVP does not upload wor
 ## Quickstart
 
 ### 1. Installation
-To install SheetCI in editable mode for local development, run:
+SheetCI is not published on PyPI, so `pip install sheetci` will not install this
+tool. Install it straight from the repository:
+
+```bash
+pip install git+https://github.com/madara88645/SheetCI
+```
+
+Or, to work on SheetCI itself, clone it and install in editable mode:
 
 ```bash
 pip install -e .
@@ -95,6 +102,14 @@ uv run sheetci scan examples/broken-commission-model.xlsx --out report.md --html
 
 The broken example is expected to fail with exit code `1` because it contains intentional audit findings.
 
+### Exit codes
+
+| Code | Meaning |
+| --- | --- |
+| `0` | Scan completed, status `PASS` |
+| `1` | Scan completed, status `FAIL` (findings above the risk threshold) |
+| `2` | The scan could not run: missing file, unreadable workbook, or a report path that could not be written |
+
 ---
 
 ## Demo
@@ -146,8 +161,8 @@ SheetCI comes with deterministic detectors:
 - **`BROKEN_REF`** (Critical): Detects formulas containing `#REF!`.
 - **`SELF_REFERENCE`** (Critical): Flags formulas referencing their own cell coordinate.
 - **`CACHED_ERROR`** (Critical): Catches cached Excel calculation errors (like `#DIV/0!`, `#VALUE!`).
-- **`EXTERNAL_LINK`** (Warning): Flags formulas referencing external worksheets or URLs.
-- **`HARDCODED_NUMBER`** (Warning): Flags magic/literal numbers embedded directly in formulas (ignoring `0`, `1`, `-1`, `2`).
+- **`EXTERNAL_LINK`** (Warning): Flags formulas referencing another workbook or a URL. References to other sheets in the same workbook are not flagged.
+- **`HARDCODED_NUMBER`** (Info): Flags magic/literal numbers embedded directly in formulas (ignoring `0`, `1`, `-1`, `2`).
 - **`INCONSISTENT_FORMULA`** (Warning): Evaluates columns with at least 5 formulas to detect rows containing formula patterns that deviate from the column's 80% majority pattern.
 - **`HIDDEN_SHEET`** (Warning): Identifies hidden worksheets containing hidden logic or stale data.
 
