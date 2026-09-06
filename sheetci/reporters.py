@@ -359,7 +359,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 """
 
 def generate_html(result: Dict[str, Any]) -> str:
-    template = Template(HTML_TEMPLATE)
+    # Sheet names and formula text come from an untrusted workbook, so they are
+    # escaped rather than injected into the report as markup.
+    template = Template(HTML_TEMPLATE, autoescape=True)
     return template.render(
         metadata=result["metadata"],
         findings=result["findings"]
