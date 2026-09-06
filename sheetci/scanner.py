@@ -1,5 +1,6 @@
 import re
 import datetime
+from pathlib import PurePath
 from typing import Dict, List, Any, Optional
 import openpyxl
 
@@ -36,6 +37,29 @@ EXCEL_ERRORS = {
     "#N/A",
 }
 
+# Formulas can run to thousands of characters. The full text stays in the
+# `formula` field for JSON consumers; the human-readable explanation is capped so
+# one long formula cannot flood a terminal or a report card.
+MAX_EXPLAINED_FORMULA_CHARS = 120
+MAX_EXPLAINED_CONSTANTS = 8
+
+
+def _shorten(text: str, limit: int = MAX_EXPLAINED_FORMULA_CHARS) -> str:
+    """Return `text` clipped to `limit` characters with an ellipsis marker."""
+    if len(text) <= limit:
+        return text
+    return text[:limit] + "..."
+
+
+def _format_constants(values: List[float]) -> str:
+    """Render extracted constants, listing at most MAX_EXPLAINED_CONSTANTS."""
+    shown = ", ".join(str(v) for v in values[:MAX_EXPLAINED_CONSTANTS])
+    remaining = len(values) - MAX_EXPLAINED_CONSTANTS
+    if remaining > 0:
+        return f"{shown}, ... (+{remaining} more)"
+    return shown
+
+
 class WorkbookScanner:
     def __init__(self, filepath: str):
         self.filepath = filepath
@@ -61,7 +85,7 @@ class WorkbookScanner:
         for sheet_name in wb_formulas.sheetnames:
             ws_formulas = wb_formulas[sheet_name]
             ws_data = wb_data[sheet_name]
-            
+
             # HIDDEN_SHEET check
             if ws_formulas.sheet_state in ("hidden", "veryHidden"):
                 self.findings.append({
@@ -74,9 +98,14 @@ class WorkbookScanner:
                     "suggested_action": "Verify if the hidden sheet contains deprecated calculations or sensitive data."
                 })
                 
+            # Chartsheets and dialog sheets are listed in sheetnames but hold no
+            # cells, so they have no iter_rows() and cannot carry formulas.
+            if not hasattr(ws_formulas, "iter_rows"):
+                continue
+
             # We will group formula cells by column for INCONSISTENT_FORMULA detection
             col_formulas: Dict[str, List[tuple]] = {}  # col_letter -> list of (cell, formula_str)
-            
+
             for row in ws_formulas.iter_rows():
                 for cell in row:
                     val = cell.value
@@ -93,7 +122,7 @@ class WorkbookScanner:
                                 "formula": formula_str,
                                 "rule_id": RULE_BROKEN_REF,
                                 "severity": SEV_CRITICAL,
-                                "explanation": f"Formula contains broken reference (#REF!): {formula_str}",
+                                "explanation": f"Formula contains broken reference (#REF!): {_shorten(formula_str)}",
                                 "suggested_action": "Fix the formula reference pointing to a deleted cell or range."
                             })
                             
@@ -105,21 +134,21 @@ class WorkbookScanner:
                                 "formula": formula_str,
                                 "rule_id": RULE_EXTERNAL_LINK,
                                 "severity": SEV_WARNING,
-                                "explanation": f"Formula references an external workbook or URL: {formula_str}",
+                                "explanation": f"Formula references an external workbook or URL: {_shorten(formula_str)}",
                                 "suggested_action": "Ensure the external link is accessible, secure, and intended."
                             })
                             
                         # 4. HARDCODED_NUMBER check
                         hardcoded_nums = extract_hardcoded_numbers(formula_str)
                         if hardcoded_nums:
-                            nums_str = ", ".join(str(n) for n in hardcoded_nums)
+                            nums_str = _format_constants(hardcoded_nums)
                             self.findings.append({
                                 "sheet_name": sheet_name,
                                 "cell_address": cell_address,
                                 "formula": formula_str,
                                 "rule_id": RULE_HARDCODED_NUMBER,
                                 "severity": SEV_INFO,
-                                "explanation": f"Formula contains hardcoded numeric constants: {formula_str} (constants: {nums_str})",
+                                "explanation": f"Formula contains hardcoded numeric constants: {_shorten(formula_str)} (constants: {nums_str})",
                                 "suggested_action": "Move hardcoded constants to input cells or parameters to make the model dynamic."
                             })
                             
@@ -141,7 +170,7 @@ class WorkbookScanner:
                                 "formula": formula_str,
                                 "rule_id": RULE_SELF_REFERENCE,
                                 "severity": SEV_CRITICAL,
-                                "explanation": f"Formula contains a circular self-reference to its own cell: {formula_str}",
+                                "explanation": f"Formula contains a circular self-reference to its own cell: {_shorten(formula_str)}",
                                 "suggested_action": "Refactor the formula to avoid referencing its own cell coordinate."
                             })
                             
@@ -200,7 +229,7 @@ class WorkbookScanner:
                             "formula": f_str,
                             "rule_id": RULE_INCONSISTENT_FORMULA,
                             "severity": SEV_WARNING,
-                            "explanation": f"Formula is inconsistent with neighboring cells in column {col_letter}: {f_str} (expected pattern similar to: {majority_pattern})",
+                            "explanation": f"Formula is inconsistent with neighboring cells in column {col_letter}: {_shorten(f_str)} (expected pattern similar to: {_shorten(majority_pattern)})",
                             "suggested_action": "Check if the formula was modified intentionally or copied down incorrectly."
                         })
 
@@ -210,7 +239,7 @@ class WorkbookScanner:
         summary = score_findings(groups)
 
         self.metadata = {
-            "workbook_name": openpyxl.utils.escape.unescape(self.filepath.split("/")[-1]),
+            "workbook_name": PurePath(self.filepath).name,
             "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "total_sheets": total_sheets,
             "total_formulas": total_formulas,

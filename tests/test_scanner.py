@@ -298,3 +298,60 @@ def test_range_ending_on_own_cell_is_still_self_reference(tmp_path):
     findings = [f for f in res["findings"] if f["rule_id"] == RULE_SELF_REFERENCE]
     assert len(findings) == 1
     assert findings[0]["cell_address"] == "C5"
+
+
+def test_workbook_with_a_chartsheet_scans_instead_of_crashing(tmp_path):
+    # Chartsheets appear in wb.sheetnames but have no cells; scanning one used to
+    # raise AttributeError and make the whole workbook unscannable.
+    from openpyxl.chart import BarChart, Reference
+
+    wb_path = tmp_path / "chartsheet.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Data"
+    for r in range(1, 6):
+        ws[f"A{r}"] = r
+        ws[f"B{r}"] = f"=A{r}*1.5"
+    chartsheet = wb.create_chartsheet("Chart1")
+    chart = BarChart()
+    chart.add_data(Reference(ws, min_col=1, min_row=1, max_row=5))
+    chartsheet.add_chart(chart)
+    wb.save(wb_path)
+
+    res = WorkbookScanner(str(wb_path)).scan()
+
+    assert res["metadata"]["total_formulas"] == 5
+    assert [f["rule_id"] for f in res["findings"]] == [RULE_HARDCODED_NUMBER]
+
+
+def test_workbook_name_is_only_the_file_name(tmp_path):
+    # The reported name is derived with pathlib, so it follows the platform's own
+    # separator instead of assuming "/" (which left Windows paths unsplit).
+    nested = tmp_path / "models" / "q3"
+    nested.mkdir(parents=True)
+    wb_path = nested / "quarterly model.xlsx"
+    wb = openpyxl.Workbook()
+    wb.save(wb_path)
+
+    res = WorkbookScanner(str(wb_path)).scan()
+
+    assert res["metadata"]["workbook_name"] == "quarterly model.xlsx"
+
+
+def test_long_formula_is_truncated_in_the_explanation(tmp_path):
+    wb_path = tmp_path / "long.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws["Z1"] = "=" + "+".join(f"A{i}*1.0{i % 7 + 1}" for i in range(1, 60))
+    wb.save(wb_path)
+
+    res = WorkbookScanner(str(wb_path)).scan()
+
+    finding = res["findings"][0]
+    assert finding["rule_id"] == RULE_HARDCODED_NUMBER
+    # The full formula stays available for JSON consumers...
+    assert len(finding["formula"]) > 500
+    # ...but the human-readable explanation stays a readable length.
+    assert len(finding["explanation"]) < 400
+    assert "..." in finding["explanation"]
+    assert "more)" in finding["explanation"]
