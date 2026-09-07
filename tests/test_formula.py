@@ -1,5 +1,10 @@
 import pytest
-from sheetci.formula import extract_hardcoded_numbers, iter_numeric_literals
+from sheetci.formula import (
+    extract_hardcoded_numbers,
+    has_external_reference,
+    iter_numeric_literals,
+    strip_text_literals,
+)
 
 
 def test_plain_constant_is_reported():
@@ -152,3 +157,46 @@ def test_structural_suppression_survives_grouping_parentheses():
 def test_top_level_grouping_parentheses_report_no_function():
     # With no enclosing call the function name is None, so the index must be 0.
     assert list(iter_numeric_literals("=(A1*100)")) == [(100.0, None, 0)]
+
+
+def test_text_literal_punctuation_is_not_an_external_link():
+    # A custom number format or a bracketed word inside a text literal is not a
+    # workbook path, so it must not raise EXTERNAL_LINK.
+    assert has_external_reference('=TEXT(A1,"[$-409]#,##0.00")') is False
+    assert has_external_reference('=IF(A1>0,"[draft]","ok")') is False
+    assert has_external_reference('=CONCATENATE("archive.xlsx is stale")') is False
+
+
+def test_real_external_references_are_still_detected():
+    # Workbook paths live outside text literals (single quotes wrap the path),
+    # and a URL stays detectable even though it is written as a text literal.
+    assert has_external_reference("='C:\\Models\\[budget.xlsx]Sheet1'!A1") is True
+    assert has_external_reference("=[1]Sheet1!B2") is True
+    assert has_external_reference('=HYPERLINK("https://example.com","x")') is True
+
+
+def test_strip_text_literals_keeps_sheet_quoting():
+    assert strip_text_literals('=A1&"text"') == "=A1& "
+    # A doubled quote escapes a quote inside the literal, it does not end it.
+    assert strip_text_literals('=IF(A1="a""b","[x]","")&B1') == "=IF(A1= , , )&B1"
+
+
+@pytest.mark.parametrize("formula", [
+    '=INDIRECT("[budget.xlsx]Sheet1!A1")',
+    '=indirect ("[1]Sheet1!A1")',
+    '=SUM(INDIRECT("[budget.xlsx]Sheet1!"&A1))',
+    '=INDIRECT(CONCAT("[budget.xlsx]", "Sheet1!A1"))',
+    '=INDIRECT("[budget.xlsx]Sheet1!R1C1",FALSE)',
+])
+def test_indirect_external_workbook_literals_are_detected(formula):
+    assert has_external_reference(formula)
+
+
+@pytest.mark.parametrize("formula", [
+    '=INDIRECT("Sheet1!A1")',
+    '=IF(A1,"[draft]",INDIRECT("Sheet1!A1"))',
+    '=CONCAT("INDIRECT(","archive.xlsx")',
+    '=INDIRECT("Sheet1!A1",IF(A1="archive.xlsx",TRUE,FALSE))',
+])
+def test_indirect_does_not_turn_unrelated_text_into_external_links(formula):
+    assert not has_external_reference(formula)

@@ -9,12 +9,40 @@ from sheetci.reporters import generate_markdown, generate_html, generate_json
 
 app = typer.Typer(help="SheetCI: CI/test/lint for Excel files.")
 
+
+def _version_callback(value: bool) -> None:
+    if value:
+        typer.echo(f"SheetCI version {__version__}")
+        raise typer.Exit()
+
+
+@app.callback()
+def main(
+    version: bool = typer.Option(
+        False,
+        "--version",
+        "-V",
+        help="Show the SheetCI version and exit.",
+        callback=_version_callback,
+        is_eager=True,
+    )
+):
+    """SheetCI: CI/test/lint for Excel files."""
+
+
 @app.command(name="version")
-def version():
+def version_command():
     """
     Print the version of SheetCI.
     """
     typer.echo(f"SheetCI version {__version__}")
+
+def _ensure_parent(path: Path) -> None:
+    """Create the report's parent directory, so `--out reports/x.md` just works."""
+    parent = path.parent
+    if str(parent):
+        parent.mkdir(parents=True, exist_ok=True)
+
 
 @app.command(name="scan")
 def scan(
@@ -40,6 +68,7 @@ def scan(
     if out:
         try:
             md_content = generate_markdown(result)
+            _ensure_parent(out)
             out.write_text(md_content, encoding="utf-8")
         except Exception as e:
             typer.echo(f"Error saving Markdown report: {e}", err=True)
@@ -48,6 +77,7 @@ def scan(
     if html:
         try:
             html_content = generate_html(result)
+            _ensure_parent(html)
             html.write_text(html_content, encoding="utf-8")
         except Exception as e:
             typer.echo(f"Error saving HTML report: {e}", err=True)
