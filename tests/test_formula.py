@@ -179,3 +179,24 @@ def test_strip_text_literals_keeps_sheet_quoting():
     assert strip_text_literals('=A1&"text"') == "=A1& "
     # A doubled quote escapes a quote inside the literal, it does not end it.
     assert strip_text_literals('=IF(A1="a""b","[x]","")&B1') == "=IF(A1= , , )&B1"
+
+
+@pytest.mark.parametrize("formula", [
+    '=INDIRECT("[budget.xlsx]Sheet1!A1")',
+    '=indirect ("[1]Sheet1!A1")',
+    '=SUM(INDIRECT("[budget.xlsx]Sheet1!"&A1))',
+    '=INDIRECT(CONCAT("[budget.xlsx]", "Sheet1!A1"))',
+    '=INDIRECT("[budget.xlsx]Sheet1!R1C1",FALSE)',
+])
+def test_indirect_external_workbook_literals_are_detected(formula):
+    assert has_external_reference(formula)
+
+
+@pytest.mark.parametrize("formula", [
+    '=INDIRECT("Sheet1!A1")',
+    '=IF(A1,"[draft]",INDIRECT("Sheet1!A1"))',
+    '=CONCAT("INDIRECT(","archive.xlsx")',
+    '=INDIRECT("Sheet1!A1",IF(A1="archive.xlsx",TRUE,FALSE))',
+])
+def test_indirect_does_not_turn_unrelated_text_into_external_links(formula):
+    assert not has_external_reference(formula)

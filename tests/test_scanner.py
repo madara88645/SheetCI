@@ -355,3 +355,12 @@ def test_long_formula_is_truncated_in_the_explanation(tmp_path):
     assert len(finding["explanation"]) < 400
     assert "..." in finding["explanation"]
     assert "more)" in finding["explanation"]
+
+
+def test_indirect_external_link_survives_workbook_scan(tmp_path):
+    wb = openpyxl.Workbook()
+    wb.active["A1"] = '=INDIRECT("[budget.xlsx]Sheet1!B2")'
+    filepath = tmp_path / "indirect.xlsx"
+    wb.save(filepath)
+    result = WorkbookScanner(str(filepath)).scan()
+    assert any(f["rule_id"] == "EXTERNAL_LINK" for f in result["findings"])

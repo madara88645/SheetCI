@@ -189,8 +189,7 @@ def extract_hardcoded_numbers(formula: str) -> List[float]:
 # `+` rather than `*` so the outer quantifier can never loop on an empty match.
 _TABLE_REF = re.compile(r"[A-Za-z_][A-Za-z0-9_.]*\[(?:[^\[\]]+|\[[^\[\]]*\])*\]")
 
-# A workbook path only ever appears in formula syntax, never inside a text
-# literal, so these markers are looked for outside double-quoted strings.
+# Workbook markers are checked in reference syntax and in INDIRECT reference text.
 _WORKBOOK_MARKERS = ("[", ".xlsx", ".xls")
 # A URL, by contrast, is normally written as a text literal, e.g. HYPERLINK().
 _URL_MARKERS = ("http://", "https://")
@@ -226,12 +225,52 @@ def strip_text_literals(formula: str) -> str:
     return "".join(out)
 
 
+def _indirect_has_workbook_reference(formula: str) -> bool:
+    """Inspect literal pieces of INDIRECT's first argument, including nested calls.
+
+    This is static detection: references assembled entirely from cell values
+    cannot be resolved without evaluating the workbook.
+    """
+    stack: List[List] = []
+    last_ident = ""
+    i = 0
+    while i < len(formula):
+        ch = formula[i]
+        if ch in ('"', "'"):
+            end = _skip_quoted(formula, i, ch)
+            if ch == '"' and any(name == "INDIRECT" and arg == 1 for name, arg in stack):
+                text = formula[i + 1:end - 1].lower()
+                if any(marker in text for marker in _WORKBOOK_MARKERS):
+                    return True
+            i = end
+            last_ident = ""
+            continue
+        if ch in _IDENT_START:
+            start = i
+            while i < len(formula) and formula[i] in _IDENT_CHARS:
+                i += 1
+            last_ident = formula[start:i].upper()
+            continue
+        if ch == "(":
+            stack.append([last_ident, 1])
+        elif ch == ")":
+            if stack:
+                stack.pop()
+        elif ch in (",", ";") and stack:
+            stack[-1][1] += 1
+        if not ch.isspace():
+            last_ident = ""
+        i += 1
+    return False
+
+
 def has_external_reference(formula: str) -> bool:
     """True when the formula points at another workbook or a URL."""
-    outside_text = strip_text_literals(strip_table_references(formula)).lower()
+    outside_text = strip_table_references(strip_text_literals(formula)).lower()
     if any(marker in outside_text for marker in _WORKBOOK_MARKERS):
         return True
-    return any(marker in formula.lower() for marker in _URL_MARKERS)
+    return (_indirect_has_workbook_reference(formula)
+            or any(marker in formula.lower() for marker in _URL_MARKERS))
 
 
 _AGGREGATE_FUNCTIONS = {
